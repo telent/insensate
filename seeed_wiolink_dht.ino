@@ -78,6 +78,8 @@ void setup() {
   dht.begin();
 }
 
+struct { float humidity, temperature; } readings  = {0, 0};
+
 bool try_connect_mqtt(PubSubClient psClient) {
   if(psClient.connected())
     return true;
@@ -95,7 +97,6 @@ bool try_connect_mqtt(PubSubClient psClient) {
 }
 
 void loop() {
-  struct { float humidity, temperature; } readings  = {0,0 };
 
   while(! try_connect_mqtt(psClient)) {
     delay(5000);
