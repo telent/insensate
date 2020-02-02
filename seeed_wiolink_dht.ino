@@ -20,6 +20,7 @@
 #define DHTPIN 14     // what pin we're connected to
 #define DHTTYPE DHT11   // DHT 22
 #endif
+ADC_MODE(ADC_VCC);
 
 DHT dht(DHTPIN, DHTTYPE);
 
@@ -107,6 +108,7 @@ void loop() {
     delay(5000);
   }
 
+  psClient.publish(make_topic("/voltage"), String(ESP.getVcc()/100.0).c_str());
   if(!dht.readTempAndHumidity((float *)&readings)){
     psClient.publish(make_topic("/temperature"), String(readings.temperature).c_str());
     psClient.publish(make_topic("/humidity"), String(readings.humidity).c_str());
