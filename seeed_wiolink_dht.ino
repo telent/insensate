@@ -136,7 +136,7 @@ void loop() {
     delay(5000);
   }
 
-  psClient.publish(make_topic("/voltage"), String(ESP.getVcc()/100.0).c_str());
+  psClient.publish(make_topic("/voltage"), String(ESP.getVcc()/1000.0).c_str());
   if(!dht.readTempAndHumidity((float *)&readings)){
     psClient.publish(make_topic("/temperature"), String(readings.temperature).c_str());
     psClient.publish(make_topic("/humidity"), String(readings.humidity).c_str());
