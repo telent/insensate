@@ -42,7 +42,7 @@ char * set_node_id(const char * mac_address)
   return node_id;
 }
 
-char *make_topic(char * suffix)
+char *make_topic(const char * suffix)
 {
   static char topic[sizeof(MQTT_TOPIC_PREFIX) + sizeof(node_id) + 16];
   strcpy(topic, MQTT_TOPIC_PREFIX);
