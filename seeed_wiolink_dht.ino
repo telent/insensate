@@ -140,9 +140,10 @@ void loop() {
   if(!dht.readTempAndHumidity((float *)&readings)){
     psClient.publish(make_topic("/temperature"), String(readings.temperature).c_str());
     psClient.publish(make_topic("/humidity"), String(readings.humidity).c_str());
+
     psClient.disconnect(); // this ensures the messages are flushed before we sleep
     Serial.println("MQTT pub done, going into deep sleep");
-    ESP.deepSleep(2 * 60 * 1e6);
+    ESP.deepSleep(300e6);
   }
   else{
     notify_progress(sensor);
