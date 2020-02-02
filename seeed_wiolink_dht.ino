@@ -9,21 +9,40 @@
 #define MQTT_TOPIC_PREFIX "sensors/"
 
 #define WITTY_BOARD 1
+#define WIOLINK_BOARD 2
 
-#ifdef WIOLINK_BOARD
+#define BOARD_TYPE WITTY_BOARD
+
+#if BOARD_TYPE == WIOLINK_BOARD
 #define DHTPIN 14     // what pin we're connected to
 #define PIN_GROVE_POWER 15
 #define DHTTYPE DHT22   // DHT 22  (AM2302)
+#define notify_progress(c) do {} while(0)
+#define notify_complete(c) do {} while(0)
+
+#elif BOARD_TYPE == WITTY_BOARD
+#define DHTPIN 2     // what pin we're connected to
+#define DHTTYPE DHT11
+
+// per http://www.icstation.com/esp8266-serial-wifi-witty-cloud-development-board-module-mini-wifi-module-smart-home-p-8154.html
+// these are the pins for the onboard led
+typedef enum {
+	      sensor = 12, broker = 13, wifi = 15
+} progress_notifier;
+
+static inline void notify_progress(progress_notifier c) {
+  pinMode((int) c, OUTPUT);
+  digitalWrite((int) c, 1);
+}
+static inline void notify_complete(progress_notifier c) {
+  pinMode((int) c, OUTPUT);
+  digitalWrite((int) c, 0);
+}
 #endif
 
-#ifdef WITTY_BOARD
-#define DHTPIN 14     // what pin we're connected to
-#define DHTTYPE DHT11   // DHT 22
-#endif
 ADC_MODE(ADC_VCC);
 
 DHT dht(DHTPIN, DHTTYPE);
-
 
 WiFiClient espClient;
 PubSubClient psClient(espClient);
@@ -55,6 +74,7 @@ char *make_topic(const char * suffix)
 
 void connect_wifi()
 {
+  notify_progress(wifi);
   WiFi.begin(WIFISSID, WIFIPASSWORD);
 
   Serial.print("Connecting");
@@ -65,6 +85,7 @@ void connect_wifi()
   }
   Serial.print("Connected, IP address: ");
   Serial.println(WiFi.localIP());
+  notify_complete(wifi);
   set_node_id(WiFi.macAddress().c_str());
 }
 
@@ -81,6 +102,11 @@ void setup() {
 #ifdef PIN_GROVE_POWER
   pinMode(PIN_GROVE_POWER, INPUT_PULLUP);
 #endif
+
+  notify_complete(sensor);
+  notify_complete(broker);
+  notify_complete(wifi);
+
   dht.begin();
 }
 
@@ -89,10 +115,12 @@ struct { float humidity, temperature; } readings  = {0, 0};
 bool try_connect_mqtt(PubSubClient psClient) {
   if(psClient.connected())
     return true;
+  notify_progress(broker);
 
   Serial.println("connecting to mqtt");
   if(psClient.connect("ESP8266Client", MQTT_USER, MQTT_PASSWORD)) {
     Serial.println("connected");
+    notify_complete(broker);
     return true;
   } else {
     Serial.print("failed, rc=");
@@ -117,8 +145,10 @@ void loop() {
     ESP.deepSleep(2 * 60 * 1e6);
   }
   else{
-     Serial.println("Failed to get temperature and humidity value, retrying");
-     // apparently it takes around 250ms to read the sensor, so wait longer than that
-     delay(5000);
+    notify_progress(sensor);
+    Serial.println("Failed to get temperature and humidity value, retrying");
+    // apparently it takes around 250ms to read the sensor, so wait longer than that
+    delay(5000);
+    notify_complete(sensor);
   }
 }
