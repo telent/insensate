@@ -32,12 +32,13 @@ char node_id[12];
 
 char * set_node_id(const char * mac_address)
 {
-  int i;
+  unsigned int i;
   char *p = node_id;
   for(i=0; i < strlen(mac_address); i+=3) {
     *p++ = mac_address[i];
     *p++ = mac_address[i+1];
   }
+  *p++ = '\0';
   return node_id;
 }
 
