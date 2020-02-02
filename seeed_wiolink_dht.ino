@@ -52,11 +52,8 @@ char *make_topic(const char * suffix)
   return topic;
 }
 
-
-void setup() {
-  String mac_address;
-  Serial.begin(115200);
-  Serial.println("hey");
+void connect_wifi()
+{
   WiFi.begin(WIFISSID, WIFIPASSWORD);
 
   Serial.print("Connecting");
@@ -68,6 +65,14 @@ void setup() {
   Serial.print("Connected, IP address: ");
   Serial.println(WiFi.localIP());
   set_node_id(WiFi.macAddress().c_str());
+}
+
+
+void setup() {
+  String mac_address;
+  Serial.begin(115200);
+  Serial.println("hey");
+  connect_wifi();
   Serial.println(make_topic("/#"));
 
   psClient.setServer(MQTT_SERVER, 1883);
