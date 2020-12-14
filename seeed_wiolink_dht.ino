@@ -2,27 +2,29 @@
 
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
-#include "DHT.h"
+#include <DHT.h>
+#include <math.h>
 
 #include "secrets.h"
 
 #define MQTT_TOPIC_PREFIX "sensors/"
+#define DHTTYPE DHT22
 
 #define WITTY_BOARD 1
 #define WIOLINK_BOARD 2
 
-#define BOARD_TYPE WITTY_BOARD
+// #define BOARD_TYPE WITTY_BOARD
+#define BOARD_TYPE WIOLINK_BOARD
 
 #if BOARD_TYPE == WIOLINK_BOARD
 #define DHTPIN 14     // what pin we're connected to
-#define PIN_GROVE_POWER 15
-#define DHTTYPE DHT22   // DHT 22  (AM2302)
+#define PIN_SENSOR_POWER 15
 #define notify_progress(c) do {} while(0)
 #define notify_complete(c) do {} while(0)
 
 #elif BOARD_TYPE == WITTY_BOARD
-#define DHTPIN 2     // what pin we're connected to
-#define DHTTYPE DHT11
+#define DHTPIN 5     // what pin we're connected to
+#define PIN_SENSOR_POWER 14
 
 // per http://www.icstation.com/esp8266-serial-wifi-witty-cloud-development-board-module-mini-wifi-module-smart-home-p-8154.html
 // these are the pins for the onboard led
@@ -72,6 +74,16 @@ char *make_topic(const char * suffix)
   return topic;
 }
 
+static void enable_sensor_power(const bool enabled)
+{
+#ifdef PIN_SENSOR_POWER
+  // turn on power to Grove sockets
+  // https://github.com/Seeed-Studio/Wio_Link/wiki/Advanced-User-Guide
+  pinMode(PIN_SENSOR_POWER, OUTPUT);
+  digitalWrite(PIN_SENSOR_POWER, enabled ? 1 : 0);
+#endif
+}
+
 void connect_wifi()
 {
   notify_progress(wifi);
@@ -98,10 +110,7 @@ void setup() {
   Serial.println(make_topic("/#"));
 
   psClient.setServer(MQTT_SERVER, 1883);
-  pinMode(DHTPIN, INPUT);
-#ifdef PIN_GROVE_POWER
-  pinMode(PIN_GROVE_POWER, INPUT_PULLUP);
-#endif
+  notify_progress(sensor);
 
   notify_complete(sensor);
   notify_complete(broker);
@@ -110,9 +119,7 @@ void setup() {
   dht.begin();
 }
 
-struct { float humidity, temperature; } readings  = {0, 0};
-
-bool try_connect_mqtt(PubSubClient psClient) {
+bool try_connect_mqtt() {
   if(psClient.connected())
     return true;
   notify_progress(broker);
@@ -120,6 +127,8 @@ bool try_connect_mqtt(PubSubClient psClient) {
   Serial.println("connecting to mqtt");
   if(psClient.connect("ESP8266Client", MQTT_USER, MQTT_PASSWORD)) {
     Serial.println("connected");
+    Serial.println(psClient.state());
+    psClient.publish(make_topic("/online"), "\1");
     notify_complete(broker);
     return true;
   } else {
@@ -130,26 +139,35 @@ bool try_connect_mqtt(PubSubClient psClient) {
   }
 }
 
-void loop() {
+#define PUBLISH_INT(topic, v) val=(v); psClient.publish(make_topic(topic), (byte *) &val, sizeof (int));
 
-  while(! try_connect_mqtt(psClient)) {
+void loop() {
+  float temperature, humidity;
+  int val;
+  while(! try_connect_mqtt()) {
     delay(5000);
   }
-
-  psClient.publish(make_topic("/voltage"), String(ESP.getVcc()/1000.0).c_str());
-  if(!dht.readTempAndHumidity((float *)&readings)){
-    psClient.publish(make_topic("/temperature"), String(readings.temperature).c_str());
-    psClient.publish(make_topic("/humidity"), String(readings.humidity).c_str());
-
+  enable_sensor_power(true);
+  delay(5000);
+  temperature = dht.readTemperature(false, true);
+  humidity = dht.readHumidity();
+  notify_complete(sensor);
+  psClient.loop();
+  PUBLISH_INT("/voltage", ESP.getVcc());
+  if(! isnan(temperature)){
+    PUBLISH_INT("/temperature", (int) temperature*100);
+    PUBLISH_INT("/humidity", (int) humidity*100);
+    psClient.loop();
     psClient.disconnect(); // this ensures the messages are flushed before we sleep
+    yield();
+    enable_sensor_power(false);
     Serial.println("MQTT pub done, going into deep sleep");
-    ESP.deepSleep(300e6);
+    ESP.deepSleep(120*1e6);
   }
   else{
-    notify_progress(sensor);
     Serial.println("Failed to get temperature and humidity value, retrying");
     // apparently it takes around 250ms to read the sensor, so wait longer than that
+    notify_progress(sensor);
     delay(5000);
-    notify_complete(sensor);
   }
 }
