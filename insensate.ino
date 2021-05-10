@@ -6,8 +6,8 @@
 #include <math.h>
 
 #include "secrets.h"
+#include "network.h"
 
-#define MQTT_TOPIC_PREFIX "sensors/"
 #define DHTTYPE DHT22
 
 #define WITTY_BOARD 1
@@ -46,34 +46,6 @@ ADC_MODE(ADC_VCC);
 
 DHT dht(DHTPIN, DHTTYPE);
 
-WiFiClient espClient;
-PubSubClient psClient(espClient);
-
-
-char node_id[12];
-
-char * set_node_id(const char * mac_address)
-{
-  unsigned int i;
-  char *p = node_id;
-  for(i=0; i < strlen(mac_address); i+=3) {
-    *p++ = mac_address[i];
-    *p++ = mac_address[i+1];
-  }
-  *p++ = '\0';
-  return node_id;
-}
-
-char *make_topic(const char * suffix)
-{
-  static char topic[sizeof(MQTT_TOPIC_PREFIX) + sizeof(node_id) + 16];
-  strcpy(topic, MQTT_TOPIC_PREFIX);
-  strcat(topic, node_id);
-  strncat(topic, suffix, 16);
-  topic[sizeof(topic)-1] = '\0';
-  return topic;
-}
-
 static void enable_sensor_power(const bool enabled)
 {
 #ifdef PIN_SENSOR_POWER
@@ -84,32 +56,19 @@ static void enable_sensor_power(const bool enabled)
 #endif
 }
 
-void connect_wifi()
-{
-  notify_progress(wifi);
-  WiFi.begin(WIFISSID, WIFIPASSWORD);
-
-  Serial.print("Connecting");
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    delay(500);
-    Serial.print(".");
-  }
-  Serial.print("Connected, IP address: ");
-  Serial.println(WiFi.localIP());
-  notify_complete(wifi);
-  set_node_id(WiFi.macAddress().c_str());
-}
-
+// extern WiFiClient espClient;
+static PubSubClient mqtt_client;
 
 void setup() {
-  String mac_address;
+  char topic[80];
+
   Serial.begin(115200);
   Serial.println("hey");
-  connect_wifi();
-  Serial.println(make_topic("/#"));
+  mqtt_client.setClient(connect_wifi());
 
-  psClient.setServer(MQTT_SERVER, 1883);
+  setup_mqtt(mqtt_client, NULL);
+  Serial.println(make_topic(topic, sizeof topic, "/#"));
+
   notify_progress(sensor);
 
   notify_complete(sensor);
@@ -119,50 +78,30 @@ void setup() {
   dht.begin();
 }
 
-bool try_connect_mqtt() {
-  if(psClient.connected())
-    return true;
-  notify_progress(broker);
-
-  Serial.println("connecting to mqtt");
-  if(psClient.connect("ESP8266Client", MQTT_USER, MQTT_PASSWORD)) {
-    Serial.println("connected");
-    Serial.println(psClient.state());
-    psClient.publish(make_topic("/online"), "\1");
-    notify_complete(broker);
-    return true;
-  } else {
-    Serial.print("failed, rc=");
-    Serial.print(psClient.state());
-    Serial.println(", trying again in 5 seconds");
-    return false;
-  }
-}
-
-void publish_val(char *topic, float val) {
+void publish_val(char *suffix, float val) {
   char payload[100];
+  char topic[80];
   int chars = snprintf(payload, sizeof payload, "%f", val);
-  psClient.publish(make_topic(topic), payload, chars);
+  mqtt_client.publish(make_topic(topic, sizeof topic, suffix), payload);
 }
 
 void loop() {
   float temperature, humidity;
-  int val;
-  while(! try_connect_mqtt()) {
-    delay(5000);
-  }
+
+  if(!mqtt_client.loop()) mqtt_reconnect(mqtt_client);
   enable_sensor_power(true);
   delay(5000);
+
+  publish_val("/voltage", ESP.getVcc()/1000.0);
   temperature = dht.readTemperature(false, true);
   humidity = dht.readHumidity();
   notify_complete(sensor);
-  psClient.loop();
-  publish_val("/voltage", ESP.getVcc()/1000.0);
+  mqtt_client.loop();
   if(! isnan(temperature)){
     publish_val("/temperature", temperature);
     publish_val("/humidity", humidity);
-    psClient.loop();
-    psClient.disconnect(); // this ensures the messages are flushed before we sleep
+    mqtt_client.loop();
+    mqtt_client.disconnect(); // this ensures the messages are flushed before we sleep
     yield();
     enable_sensor_power(false);
     Serial.println("MQTT pub done, going into deep sleep");
@@ -172,6 +111,7 @@ void loop() {
     Serial.println("Failed to get temperature and humidity value, retrying");
     // apparently it takes around 250ms to read the sensor, so wait longer than that
     notify_progress(sensor);
+    mqtt_client.disconnect(); // this ensures the messages are flushed before we sleep
     delay(5000);
   }
 }
