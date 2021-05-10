@@ -139,7 +139,11 @@ bool try_connect_mqtt() {
   }
 }
 
-#define PUBLISH_INT(topic, v) val=(v); psClient.publish(make_topic(topic), (byte *) &val, sizeof (int));
+void publish_val(char *topic, float val) {
+  char payload[100];
+  int chars = snprintf(payload, sizeof payload, "%f", val);
+  psClient.publish(make_topic(topic), payload, chars);
+}
 
 void loop() {
   float temperature, humidity;
@@ -153,10 +157,10 @@ void loop() {
   humidity = dht.readHumidity();
   notify_complete(sensor);
   psClient.loop();
-  PUBLISH_INT("/voltage", ESP.getVcc());
+  publish_val("/voltage", ESP.getVcc()/1000.0);
   if(! isnan(temperature)){
-    PUBLISH_INT("/temperature", (int) temperature*100);
-    PUBLISH_INT("/humidity", (int) humidity*100);
+    publish_val("/temperature", temperature);
+    publish_val("/humidity", humidity);
     psClient.loop();
     psClient.disconnect(); // this ensures the messages are flushed before we sleep
     yield();
